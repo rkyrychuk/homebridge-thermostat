@@ -4,15 +4,15 @@ const CONFIG_PATH = "/opt/etc/homebridge/thermostat.data"
 const mqtt = require('mqtt')
 
 const STATE = {
-  Off: 0, 
-  Heat: 1, 
-  Cool: 2, 
+  Off: 0,
+  Heat: 1,
+  Cool: 2,
   Auto: 3
 }
 module.exports = function (homebridge) {
   Service = homebridge.hap.Service
   Characteristic = homebridge.hap.Characteristic
-  homebridge.registerPlatform("ThermostatHomePlugin", ThermostatHomePlugin);  
+  homebridge.registerPlatform("ThermostatHomePlugin", ThermostatHomePlugin);
 }
 
 class ThermostatHomePlugin {
@@ -20,9 +20,9 @@ class ThermostatHomePlugin {
     this.config = config
     this.accessories = [];
     this.log = log
-    
+
     log.debug('ThermostatHomePlugin Platform Loaded');
-    
+
     api.on('didFinishLaunching', () => {
       log.debug('didFinishLaunching');
       const uuid = api.hap.uuid.generate("000000003fb10225");
@@ -31,11 +31,11 @@ class ThermostatHomePlugin {
         const accessory = new api.platformAccessory('Thermostat', uuid);
         new ThermostatAccesory(this, accessory)
         api.registerPlatformAccessories('homebridge-thermostat', 'ThermostatHome', [accessory]);
-      }      
+      }
     })
     this.client = mqtt.connect('mqtt://localhost')
     this.client.on('connect', () => this.client.subscribe('zigbee2mqtt/+'))
-  } 
+  }
   configureAccessory(accessory) {
     new ThermostatAccesory(this, accessory)
     this.accessories.push(accessory);
@@ -49,7 +49,7 @@ class ThermostatAccesory {
     this.config = platform.config
     this.accessory = accessory
     this.loadState()
-    
+
     this.accessory.getService(Service.AccessoryInformation)
       .setCharacteristic(Characteristic.Manufacturer, 'Viesman')
       .setCharacteristic(Characteristic.Model, 'Vitopend 100')
@@ -60,6 +60,7 @@ class ThermostatAccesory {
     this.service.getCharacteristic(Characteristic.CurrentTemperature).on('get', callback => callback(null, this.state.temperature))
     this.service.getCharacteristic(Characteristic.TargetHeatingCoolingState)
       .on('set', this.setTargetHeatingCoolingState.bind(this))
+      .on('get', callback => callback(null, this.state.targetMode))
       .setProps({
         validValues: [0, 1, 3]
       })
@@ -67,15 +68,16 @@ class ThermostatAccesory {
 
     this.service.getCharacteristic(Characteristic.TargetTemperature)
       .on('set', this.setTargetTemperature.bind(this))
+      .on('get', callback => callback(null, this.state.targetTemperature))
       .setProps({
         minValue: 15,
         maxValue: 30,
         minStep: 0.1
       })
-      .updateValue(this.state.targetTemperature)    
-    
+      .updateValue(this.state.targetTemperature)
+
     //const {sensor, switch}: any = this.config
-    
+
     this.platform.client.on('message', (topic, message) => {
       try {
         const data = JSON.parse(message.toString())
@@ -85,15 +87,15 @@ class ThermostatAccesory {
           this.state.relativeHumidity = data.humidity
           this.service.getCharacteristic(Characteristic.CurrentTemperature).updateValue(this.state.temperature)
           this.service.getCharacteristic(Characteristic.CurrentRelativeHumidity).updateValue(this.state.relativeHumidity)
-        } 
+        }
         if (topic === `zigbee2mqtt/${this.config.switch}`) {
           this.state.mode = data.state === "ON" ? STATE.Heat : STATE.Off
           this.service.getCharacteristic(Characteristic.CurrentHeatingCoolingState).updateValue(this.state.mode)
         }
       }
-      catch(error) {
+      catch (error) {
         this.log(error)
-      }       
+      }
     })
 
     setInterval(() => this.verifyHeatingState(), (this.config.pollInterval || 60) * 1000)
@@ -103,14 +105,14 @@ class ThermostatAccesory {
     const sensors = fs.existsSync("/opt/etc/zigbee2mqtt/data/state.json") ? JSON.parse(fs.readFileSync(CONFIG_PATH, "utf-8")) : {}
     const data = sensors[this.config.sensor] || {}
 
-    this.state = fs.existsSync(CONFIG_PATH) ? 
-      JSON.parse(fs.readFileSync(CONFIG_PATH, "utf-8")): ({
+    this.state = fs.existsSync(CONFIG_PATH) ?
+      JSON.parse(fs.readFileSync(CONFIG_PATH, "utf-8")) : ({
         targetTemperature: 20.5,
         targetMode: STATE.Auto,
         mode: STATE.Off,
         temperature: data.temperature,
         relativeHumidity: data.humidity
-      })    
+      })
   }
   saveState() {
     fs.writeFileSync(CONFIG_PATH, JSON.stringify(this.state))
@@ -145,16 +147,16 @@ class ThermostatAccesory {
       }
     } else {
       this.setHeatState(this.state.targetMode)
-    }    
+    }
   }
 
   setHeatState(state) {
     if (this.state.mode !== state) {
       this.state.mode = state
       this.platform.client.publish(`zigbee2mqtt/${this.config.switch}/set`, JSON.stringify({
-       state: this.state.mode === STATE.Heat ? "ON" : "OFF"
-      }))      
+        state: this.state.mode === STATE.Heat ? "ON" : "OFF"
+      }))
     }
     this.service.getCharacteristic(Characteristic.CurrentHeatingCoolingState).updateValue(this.state.mode)
-  }  
+  }
 }
