@@ -100,13 +100,16 @@ class ThermostatAccesory {
   }
 
   loadState() {
+    const sensors = fs.existsSync("/opt/etc/zigbee2mqtt/data/state.json") ? JSON.parse(fs.readFileSync(CONFIG_PATH, "utf-8")) : {}
+    const data = sensors[this.config.sensor] || {}
+
     this.state = fs.existsSync(CONFIG_PATH) ? 
       JSON.parse(fs.readFileSync(CONFIG_PATH, "utf-8")): ({
         targetTemperature: 20.5,
         targetMode: STATE.Auto,
         mode: STATE.Off,
-        temperature: undefined,
-        relativeHumidity: undefined
+        temperature: data.temperature,
+        relativeHumidity: data.humidity
       })    
   }
   saveState() {
@@ -144,7 +147,6 @@ class ThermostatAccesory {
       this.setHeatState(this.state.targetMode)
     }    
   }
-  
 
   setHeatState(state) {
     if (this.state.mode !== state) {
