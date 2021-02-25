@@ -1,0 +1,25 @@
+{
+  "name": "homebridge-thermostat",
+  "version": "1.0.0",
+  "description": "Homebridge plugin for thermostat",
+  "main": "index.js",
+  "dependencies": {
+    "mqtt": "^4.2.6"
+  },
+  "engines": {
+    "homebridge": ">=0.4.50",
+    "node": ">=12.13.0"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rkyrychuk/homebridge-thermostat.git"
+  },
+  "keywords": [
+    "homebridge-plugin"
+  ],
+  "author": "Ruslan Kyrychuk",
+  "license": "MIT"  
+}
