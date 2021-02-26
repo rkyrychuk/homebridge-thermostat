@@ -1,6 +1,8 @@
 var Service, Characteristic
+const { EventEmitter } = require("events")
 const fs = require("fs")
 const CONFIG_PATH = "/opt/etc/homebridge/thermostat.data"
+const STATE_PATH = "/opt/etc/zigbee2mqtt/data/state.json"
 const mqtt = require('mqtt')
 
 const STATE = {
@@ -15,14 +17,17 @@ module.exports = function (homebridge) {
   homebridge.registerPlatform("ThermostatHomePlugin", ThermostatHomePlugin);
 }
 
-class ThermostatHomePlugin {
+class ThermostatHomePlugin extends EventEmitter {
   constructor(log, config, api) {
+    super()
     this.config = config
     this.accessories = [];
     this.log = log
-
+    this.state = fs.existsSync(STATE_PATH) ? JSON.parse(fs.readFileSync(STATE_PATH, "utf-8")) : {
+      [config.sensor]: {},
+      [config.switch]: {}
+    }
     log.debug('ThermostatHomePlugin Platform Loaded');
-
     api.on('didFinishLaunching', () => {
       log.debug('didFinishLaunching');
       const uuid = api.hap.uuid.generate("000000003fb10225");
@@ -34,8 +39,24 @@ class ThermostatHomePlugin {
       }
     })
     this.client = mqtt.connect('mqtt://localhost')
-    this.client.on('connect', () => this.client.subscribe('zigbee2mqtt/+'))
+    this.client.on('message', (topic, message) => {
+      try {
+        const data = JSON.parse(message.toString())
+        const device = topic.replace(/^zigbee2mqtt\//, "")
+        this.state[device] = data
+        this.emit(device, data)        
+      }
+      catch (error) {
+        this.log(error)
+      }
+    })
+    if (this.client.connected)
+      this.client.subscribe('zigbee2mqtt/+')
+    else
+      this.client.on('connect', () => this.client.subscribe('zigbee2mqtt/+'))    
   }
+
+
   configureAccessory(accessory) {
     new ThermostatAccesory(this, accessory)
     this.accessories.push(accessory);
@@ -76,35 +97,21 @@ class ThermostatAccesory {
       })
       .updateValue(this.state.targetTemperature)
 
-    //const {sensor, switch}: any = this.config
-
-    this.platform.client.on('message', (topic, message) => {
-      try {
-        const data = JSON.parse(message.toString())
-        this.log(data, topic)
-        if (topic === `zigbee2mqtt/${this.config.sensor}`) {
-          this.state.temperature = data.temperature
-          this.state.relativeHumidity = data.humidity
-          this.service.getCharacteristic(Characteristic.CurrentTemperature).updateValue(this.state.temperature)
-          this.service.getCharacteristic(Characteristic.CurrentRelativeHumidity).updateValue(this.state.relativeHumidity)
-        }
-        if (topic === `zigbee2mqtt/${this.config.switch}`) {
-          this.state.mode = data.state === "ON" ? STATE.Heat : STATE.Off
-          this.service.getCharacteristic(Characteristic.CurrentHeatingCoolingState).updateValue(this.state.mode)
-        }
-      }
-      catch (error) {
-        this.log(error)
-      }
+    this.platform.on(this.config.sensor, (data) => {
+      this.state.temperature = data.temperature
+      this.state.relativeHumidity = data.humidity
+      this.service.getCharacteristic(Characteristic.CurrentTemperature).updateValue(this.state.temperature)
+      this.service.getCharacteristic(Characteristic.CurrentRelativeHumidity).updateValue(this.state.relativeHumidity)
     })
-
+    this.platform.on(this.config.switch, (data) => {
+      this.state.mode = data.state === "ON" ? STATE.Heat : STATE.Off
+      this.service.getCharacteristic(Characteristic.CurrentHeatingCoolingState).updateValue(this.state.mode)
+    })
     setInterval(() => this.verifyHeatingState(), (this.config.pollInterval || 60) * 1000)
   }
 
   loadState() {
-    const sensors = fs.existsSync("/opt/etc/zigbee2mqtt/data/state.json") ? JSON.parse(fs.readFileSync(CONFIG_PATH, "utf-8")) : {}
-    const data = sensors[this.config.sensor] || {}
-
+    const data = this.platform.state[this.config.sensor] || {}    
     this.state = fs.existsSync(CONFIG_PATH) ?
       JSON.parse(fs.readFileSync(CONFIG_PATH, "utf-8")) : ({
         targetTemperature: 20.5,
